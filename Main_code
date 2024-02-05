@@ -1,0 +1,167 @@
+#define ENA 9
+#define IN1 4
+#define IN2 3
+#define IN3 6
+#define IN4 7
+#define ENB 10
+#define STBY 5
+
+int P, D, I, previousError, PIDvalue, error;
+int lsp, rsp;
+int lfspeed = 200;
+
+float Kp = 0.0006;
+float Kd = 10 * Kp;
+float Ki = 0;
+
+int minValues[6], maxValues[6], threshold[6];
+
+void setup()
+{
+  Serial.begin(9600);
+  pinMode(11, INPUT_PULLUP);
+  pinMode(12, INPUT_PULLUP);
+
+  pinMode(ENA, OUTPUT);
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+  pinMode(ENB, OUTPUT);
+  pinMode(STBY, OUTPUT);
+
+  digitalWrite(STBY, HIGH); // Set STBY pin HIGH to enable the motor driver
+}
+
+void loop()
+{
+  while (digitalRead(11)) {}
+  delay(1000);
+  calibrate();
+  while (digitalRead(12)) {}
+  delay(1000);
+
+  while (1)
+  {
+    if (analogRead(A1) > threshold[1] && analogRead(A5) < threshold[5])
+    {
+      lsp = 0;
+      rsp = lfspeed;
+      driveMotors(0, lfspeed);
+    }
+    else if (analogRead(A5) > threshold[5] && analogRead(A1) < threshold[1])
+    {
+      lsp = lfspeed;
+      rsp = 0;
+      driveMotors(lfspeed, 0);
+    }
+    else if (analogRead(A3) > threshold[3])
+    {
+      linefollow();
+    }
+  }
+}
+
+void linefollow()
+{
+  int error = (analogRead(A2) - analogRead(A4));
+
+  P = error;
+  I = I + error;
+  D = error - previousError;
+
+  PIDvalue = (Kp * P) + (Ki * I) + (Kd * D);
+  previousError = error;
+
+  lsp = lfspeed - PIDvalue;
+  rsp = lfspeed + PIDvalue;
+
+  if (lsp > 255)
+  {
+    lsp = 255;
+  }
+  if (lsp < 0)
+  {
+    lsp = 0;
+  }
+  if (rsp > 255)
+  {
+    rsp = 255;
+  }
+  if (rsp < 0)
+  {
+    rsp = 0;
+  }
+
+  driveMotors(lsp, rsp);
+}
+
+void calibrate()
+{
+  for (int i = 1; i < 6; i++)
+  {
+    minValues[i] = analogRead(A0 + i);
+    maxValues[i] = analogRead(A0 + i);
+  }
+
+  for (int i = 0; i < 3000; i++)
+  {
+    driveMotors(50, -50);
+
+    for (int i = 1; i < 6; i++)
+    {
+      if (analogRead(A0 + i) < minValues[i])
+      {
+        minValues[i] = analogRead(A0 + i);
+      }
+      if (analogRead(A0 + i) > maxValues[i])
+      {
+        maxValues[i] = analogRead(A0 + i);
+      }
+    }
+  }
+
+  for (int i = 1; i < 6; i++)
+  {
+    threshold[i] = (minValues[i] + maxValues[i]) / 2;
+    Serial.print(threshold[i]);
+    Serial.print("   ");
+  }
+  Serial.println();
+
+  stopMotors(); // Stop the motors after calibration
+}
+
+void driveMotors(int leftSpeed, int rightSpeed)
+{
+  analogWrite(ENA, abs(leftSpeed));
+  analogWrite(ENB, abs(rightSpeed));
+
+  if (leftSpeed >= 0)
+  {
+    digitalWrite(IN1, HIGH);
+    digitalWrite(IN2, LOW);
+  }
+  else
+  {
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, HIGH);
+  }
+
+  if (rightSpeed >= 0)
+  {
+    digitalWrite(IN3, HIGH);
+    digitalWrite(IN4, LOW);
+  }
+  else
+  {
+    digitalWrite(IN3, LOW);
+    digitalWrite(IN4, HIGH);
+  }
+}
+
+void stopMotors()
+{
+  analogWrite(ENA, 0);
+  analogWrite(ENB, 0);
+}
